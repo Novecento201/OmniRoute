@@ -362,6 +362,16 @@ test("catalog declarations do not grant access or enable native vision", async (
   };
   const rows = parseVeniceModels(catalog, b);
   assert.equal(rows[0].supportsVision, null);
+  assert.equal(rows[0].venice.catalog.usesCredits, null);
+  assert.equal(rows[0].venice.catalog.usesCreditsExplicit, false);
+  for (const usesCredits of [false, true]) {
+    const explicit = parseVeniceModels(
+      { text: { models: [{ id: model, active: true, usesCredits }] } },
+      b
+    );
+    assert.equal(explicit[0].venice.catalog.usesCredits, usesCredits);
+    assert.equal(explicit[0].venice.catalog.usesCreditsExplicit, true);
+  }
   assert.equal(rows[0].venice.accountAccess, "unknown");
   assert.equal(rows[0].structuredOutput, false);
   assert.equal(b.imageLimit(model), 2);

@@ -34,7 +34,9 @@ export function parseVeniceModels(value: unknown, broker: VeniceAuthBroker) {
             maxImages,
             supportsResponseSchema: row.supportsResponseSchema === true,
             proOnly: row.proOnly === true,
-            usesCredits: row.usesCredits === true,
+            // Missing entitlement metadata is unknown, never an affirmative no-credit claim.
+            usesCredits: typeof row.usesCredits === "boolean" ? row.usesCredits : null,
+            usesCreditsExplicit: typeof row.usesCredits === "boolean",
             active: true,
           },
           accountAccess: broker.access(id),
