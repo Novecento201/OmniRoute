@@ -1,7 +1,7 @@
 /** Live, neutral-fixture acceptance probe. Never writes credentials or production assets. */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { readFile, writeFile, mkdtemp } from "node:fs/promises";
+import { readFile, writeFile, mkdtemp, copyFile } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -87,12 +87,18 @@ const report: {
   steps: [],
 };
 const reportFile = path.resolve(".venice-browser/pilot-results.json");
+try {
+  await copyFile(reportFile, path.resolve(`.venice-browser/pilot-results-${Date.now()}.json`));
+} catch (error) {
+  if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+}
 async function save() {
   report.updatedAt = new Date().toISOString();
   await writeFile(reportFile, JSON.stringify(report, null, 2), { mode: 0o600 });
 }
 const bodyFor = (selected: typeof images) => ({
   model,
+  temperature: 0,
   messages: [
     {
       role: "user",
@@ -100,7 +106,7 @@ const bodyFor = (selected: typeof images) => ({
         {
           type: "text",
           text: selected.length
-            ? "List the dominant color of each attached image, in order. Be brief."
+            ? `There are exactly ${selected.length} attached images. Return a JSON array of exactly ${selected.length} dominant color names, one per image in order, without any other text.`
             : "Reply with OK only.",
         },
         ...selected.map((image) => image.part),
@@ -108,8 +114,29 @@ const bodyFor = (selected: typeof images) => ({
     },
   ],
 });
-async function execute(name: string, body: unknown, selected: typeof images, stream = false) {
+let nextRequestAt = 0;
+async function pacedExecute(body: unknown, stream: boolean) {
+  await sleep(Math.max(0, nextRequestAt - Date.now()));
   const result = await executor.execute({ model, body, stream, credentials: {} });
+  nextRequestAt = Date.now() + 20_000;
+  return result;
+}
+async function execute(name: string, body: unknown, selected: typeof images, stream = false) {
+  let result = await pacedExecute(body, stream);
+  if (result.response.status === 429 && "diagnostics" in result) {
+    const delay = Math.max(60, result.diagnostics.retryAfterSeconds ?? 60);
+    report.steps.push({
+      name: name + "-rate-limit",
+      diagnostics: result.diagnostics,
+      retryDelaySeconds: delay,
+    });
+    await save();
+    // At most one retry, never earlier than the upstream delay. Long limits stop the pilot.
+    if (delay <= 120) {
+      await sleep(delay * 1000);
+      result = await pacedExecute(body, stream);
+    }
+  }
   if (!("diagnostics" in result)) throw new Error("Classic transport unavailable");
   const diagnostic = result.diagnostics;
   if (!result.response.ok) {
@@ -223,6 +250,7 @@ try {
   broker.invalidate();
   await execute("browser-renewal", bodyFor([]), []);
   const cancel = new AbortController();
+  await sleep(Math.max(0, nextRequestAt - Date.now()));
   const pending = executor.execute({
     model,
     stream: true,

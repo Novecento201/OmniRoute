@@ -10,6 +10,7 @@ import {
 import {
   VeniceClassicTransport,
   mayUseVisionBridge,
+  parseRetryAfter,
 } from "../../open-sse/executors/venice-web/classicTransport.ts";
 import {
   parseVeniceModels,
@@ -22,6 +23,45 @@ const auth = {
   userId: "fixture-user",
 };
 const model = "venice-uncensored-1-2";
+
+test("a restarted broker does not reuse companion refresh command identifiers", async () => {
+  const first = new VeniceAuthBroker();
+  const second = new VeniceAuthBroker();
+  const firstWait = first.acquire();
+  const secondWait = second.acquire();
+  assert.notEqual(first.poll().refreshId, second.poll().refreshId);
+  first.close();
+  second.close();
+  await assert.rejects(firstWait, VeniceTransportError);
+  await assert.rejects(secondWait, VeniceTransportError);
+});
+
+test("429 returns only normalized Retry-After and does not replay or expose raw headers", async () => {
+  assert.equal(parseRetryAfter("30"), 30);
+  assert.equal(parseRetryAfter("-1"), null);
+  assert.equal(
+    parseRetryAfter("Sat, 12 Sep 2026 06:30:00 GMT", Date.parse("2026-09-12T06:29:00Z")),
+    60
+  );
+  assert.equal(parseRetryAfter("synthetic-private-header"), null);
+  const b = new VeniceAuthBroker();
+  b.submit(auth);
+  let attempts = 0;
+  const result = await new VeniceClassicTransport(b, async () => {
+    attempts++;
+    return new Response("private error body", {
+      status: 429,
+      headers: { "Retry-After": "30", "Set-Cookie": "private-cookie" },
+    });
+  }).execute({ model, body: { messages: [{ role: "user", content: "neutral" }] }, stream: false });
+  assert.equal(attempts, 1);
+  assert.equal(result.response.status, 429);
+  assert.equal(result.response.headers.get("retry-after"), "30");
+  assert.equal(result.response.headers.get("set-cookie"), null);
+  assert.equal(result.diagnostics.retryAfterSeconds, 30);
+  assert.equal((await result.response.text()).includes("private"), false);
+  b.close();
+});
 const png =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aWZkAAAAASUVORK5CYII=";
 const input = (count = 0, stream = false) => ({
@@ -53,6 +93,17 @@ const freshBroker = () => {
   b.submit(auth);
   return b;
 };
+
+test("auth diagnostics include successful browser refresh at initial acquisition", async () => {
+  const broker = new VeniceAuthBroker();
+  const result = new VeniceClassicTransport(broker, async () => ndjson()).execute(input());
+  assert.ok(broker.poll().refreshId);
+  broker.submit(auth);
+  const completed = await result;
+  assert.equal(completed.response.status, 200);
+  assert.equal(completed.diagnostics.authRefreshed, true);
+  broker.close();
+});
 const safe = (value: unknown) => {
   const text = JSON.stringify(value) + inspect(value);
   for (const secret of Object.values(auth).slice(0, 2)) assert.equal(text.includes(secret), false);

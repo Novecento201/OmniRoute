@@ -18,6 +18,23 @@ export type ClassicExecuteInput = {
 export function mayUseVisionBridge(error: unknown): boolean {
   return error instanceof VeniceTransportError && error.category === "unsupported_content";
 }
+/** Normalize delay metadata without forwarding arbitrary upstream header strings. */
+export function parseRetryAfter(value: string | null, now = Date.now()): number | null {
+  if (!value) return null;
+  const normalized = value.trim();
+  const delta = /^\d+$/.test(normalized);
+  if (
+    !delta &&
+    !/^(Mon|Tue|Wed|Thu|Fri|Sat|Sun), \d{2} (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{4} \d{2}:\d{2}:\d{2} GMT$/.test(
+      normalized
+    )
+  )
+    return null;
+  const seconds = delta
+    ? Number(normalized)
+    : Math.max(0, Math.ceil((Date.parse(normalized) - now) / 1000));
+  return Number.isSafeInteger(seconds) && seconds >= 0 ? seconds : null;
+}
 function statusError(status: number): VeniceTransportError {
   return new VeniceTransportError(
     status === 401
@@ -110,6 +127,7 @@ export class VeniceClassicTransport {
       latencyMs: 0,
       status: "pending",
       authRefreshed: false,
+      retryAfterSeconds: null as number | null,
     };
     const headers = { authorization: "[REDACTED]", "x-venice-client-attestation": "[REDACTED]" };
     const metadata = { url: VENICE_CLASSIC_URL, headers, transformedBody: body, diagnostics };
@@ -123,7 +141,9 @@ export class VeniceClassicTransport {
             : 0),
         0
       );
+      const neededRefresh = !this.broker.valid();
       let state = await this.broker.acquire(signal);
+      diagnostics.authRefreshed = neededRefresh;
       // Values observed for Venice Uncensored 1.2; model-specific overrides come from the request.
       const wire = buildClassicRequest(
         messages,
@@ -183,6 +203,8 @@ export class VeniceClassicTransport {
         break;
       }
       if (!upstream?.ok) {
+        if (upstream?.status === 429)
+          diagnostics.retryAfterSeconds = parseRetryAfter(upstream.headers.get("retry-after"));
         if (upstream?.status === 401) this.broker.invalidate(state.revision);
         if (upstream && [402, 403].includes(upstream.status))
           this.broker.recordAccess(model, false, state.userId);
@@ -295,7 +317,13 @@ export class VeniceClassicTransport {
         ...metadata,
         response: Response.json(
           { error: { message: safe.message, type: "upstream_error", code: safe.category } },
-          { status: safe.status }
+          {
+            status: safe.status,
+            headers:
+              diagnostics.retryAfterSeconds !== null
+                ? { "Retry-After": String(diagnostics.retryAfterSeconds) }
+                : undefined,
+          }
         ),
       };
     }

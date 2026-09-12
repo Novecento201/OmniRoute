@@ -1,4 +1,5 @@
 import { inspect } from "node:util";
+import { randomInt } from "node:crypto";
 
 export type VeniceErrorCategory =
   | "auth_missing"
@@ -100,7 +101,9 @@ export class VeniceAuthBroker {
     id: number;
   };
   #lastCompanionAt = 0;
-  #refreshId = 0;
+  // The companion survives server restarts and deduplicates commands by this ID.
+  // Start with a fresh 47-bit nonce so a new process cannot repeat command 1.
+  #refreshId = randomInt(0, 2 ** 47);
   #validated = new Map<string, number>();
   #access = new Map<string, "available" | "denied">();
   #imageLimits = new Map<string, number>();
