@@ -8,6 +8,10 @@
 import { resolveProviderId } from "@/shared/constants/providers";
 import { isNoAuthProviderKey } from "@/shared/utils/noAuthProviders";
 import { SYNTHETIC_NOAUTH_CONNECTION_ID } from "@omniroute/open-sse/services/autoCombo/resilienceCandidateFilter.ts";
+import {
+  getVeniceBroker,
+  veniceBrowserEnabled,
+} from "@omniroute/open-sse/executors/venice-web/runtimeState.ts";
 
 /**
  * True when a provider connection can actually authenticate upstream.
@@ -15,6 +19,8 @@ import { SYNTHETIC_NOAUTH_CONNECTION_ID } from "@omniroute/open-sse/services/aut
  * surfaces as noauth and then 401 "Missing API key").
  */
 export type ProviderConnectionLike = {
+  provider?: string | null;
+  providerSpecificData?: unknown;
   authType?: string | null;
   apiKey?: string | null;
   accessToken?: string | null;
@@ -49,6 +55,16 @@ export function hasTerminalConnectionStatus(connection: ProviderConnectionLike):
 export function isProviderConnectionUsable(connection: ProviderConnectionLike): boolean {
   if (hasTerminalConnectionStatus(connection)) {
     return false;
+  }
+
+  if (
+    connection.provider === "venice-web" &&
+    veniceBrowserEnabled() &&
+    (connection.providerSpecificData as Record<string, unknown> | null)?.authMode === "browser"
+  ) {
+    const status = getVeniceBroker().status();
+    // Readiness to attempt authentication is separate from model/vision validation.
+    return status.connected || status.companionAvailable;
   }
 
   const auth = String(connection.authType || "").toLowerCase();

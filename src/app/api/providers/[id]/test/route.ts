@@ -910,6 +910,13 @@ export async function testSingleConnection(connectionId: string, validationModel
   }
   retirement.assertProviderAvailable(provider);
 
+  if (provider === "venice-web") {
+    const { getBrowserSessionReadiness } = await import("@/lib/providers/veniceBrowser");
+    const readiness = getBrowserSessionReadiness(connection);
+    // No API-key/OAuth probe or health-state write for an externally managed browser session.
+    if (readiness) return readiness;
+  }
+
   let proxyInfo: any = null;
   try {
     proxyInfo = await resolveProxyForConnection(connectionId);

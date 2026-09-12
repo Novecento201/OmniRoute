@@ -358,6 +358,8 @@ export async function registerNodejs(): Promise<void> {
     const { startVeniceBrowserRuntime } =
       await import("../open-sse/executors/venice-web/runtime.ts");
     await startVeniceBrowserRuntime();
+    const { ensureRegisteredBrowserConnection } = await import("./lib/providers/veniceBrowser");
+    await ensureRegisteredBrowserConnection();
   }
 
   await ensureSecrets();
