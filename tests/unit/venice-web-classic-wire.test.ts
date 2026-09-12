@@ -34,6 +34,26 @@ const context: ClassicContext = {
 const category = (name: VeniceWireError["category"]) => (error: unknown) =>
   error instanceof VeniceWireError && error.category === name;
 
+test("JPEG neutral browser fixture preserves exact base64", () => {
+  const base64 =
+    "/9j/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCABAAEADASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAP/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFgEBAQEAAAAAAAAAAAAAAAAAAAYH/8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEQMRAD8AoAnmXAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP/9k=";
+  const part = {
+    type: "image_url" as const,
+    image_url: { url: "data:image/jpeg;base64," + base64 },
+  };
+  assert.equal(prepareInlineImage(part, limits), base64);
+});
+
+test("WebP neutral browser fixture preserves exact base64", () => {
+  const base64 =
+    "UklGRlAAAABXRUJQVlA4IEQAAAAQBACdASpAAEAAPm02mEkkIyKhIggAgA2JaQB2APwAACBupqAK8QtyAAD+8PGr//7dn9dn9dn/Xt//+B+XThiAAAAAAA==";
+  const part = {
+    type: "image_url" as const,
+    image_url: { url: "data:image/webp;base64," + base64 },
+  };
+  assert.equal(prepareInlineImage(part, limits), base64);
+});
+
 test("Classic text compatibility has prompt/modelId, no OpenAI messages wrapper", () => {
   const out = buildClassicRequest([{ role: "user", content: "Hello" }], context, limits);
   assert.deepEqual(out, { ...context, prompt: [{ role: "user", content: "Hello" }] });
