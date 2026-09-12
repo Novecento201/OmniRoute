@@ -16,6 +16,7 @@ import {
 } from "../../services/modelFamilyFallback.ts";
 import { COOLDOWN_MS } from "../../config/errorConfig.ts";
 import { normalizeHeaders } from "../../utils/headers.ts";
+import type { VeniceResponseDiagnostics } from "./executorDiagnostics.ts";
 
 export interface ChatCoreExecutorResult {
   response: Response;
@@ -23,6 +24,7 @@ export interface ChatCoreExecutorResult {
   headers: Record<string, string>;
   transformedBody: unknown;
   transport?: string;
+  diagnostics?: VeniceResponseDiagnostics;
   _executionCredentials?: Record<string, unknown>;
   _accountSemaphoreRelease?: () => void;
 }
@@ -40,6 +42,7 @@ export type ProviderExecutionOutcome =
       url: string;
       headers: Record<string, string>;
       transformedBody: unknown;
+      diagnostics?: VeniceResponseDiagnostics;
       model: string;
       connectionId: string;
     }
@@ -218,6 +221,7 @@ async function toOutcome(
       url: attempt.url,
       headers: attempt.headers,
       transformedBody: attempt.transformedBody,
+      diagnostics: attempt.diagnostics,
       model,
       connectionId,
     };

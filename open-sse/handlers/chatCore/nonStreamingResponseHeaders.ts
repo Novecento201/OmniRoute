@@ -10,6 +10,10 @@
  */
 import { OMNIROUTE_RESPONSE_HEADERS } from "@/shared/constants/headers";
 import { attachOmniRouteMetaHeaders as defaultAttachMeta } from "@/domain/omnirouteResponseMeta";
+import {
+  buildExecutorDiagnosticHeaders,
+  type VeniceResponseDiagnostics,
+} from "./executorDiagnostics.ts";
 
 export function buildNonStreamingResponseHeaders(
   args: {
@@ -22,6 +26,7 @@ export function buildNonStreamingResponseHeaders(
     compressionResponseMeta?: string | null | undefined;
     comboStrategy?: string | null | undefined;
     fallbackAttempts?: number;
+    diagnostics?: VeniceResponseDiagnostics;
   },
   deps: { attachOmniRouteMetaHeaders: typeof defaultAttachMeta; now: () => number } = {
     attachOmniRouteMetaHeaders: defaultAttachMeta,
@@ -31,6 +36,7 @@ export function buildNonStreamingResponseHeaders(
   const responseHeaders: Record<string, string> = {
     "Content-Type": "application/json",
     [OMNIROUTE_RESPONSE_HEADERS.cache]: "MISS",
+    ...buildExecutorDiagnosticHeaders(args.provider, args.diagnostics),
   };
   deps.attachOmniRouteMetaHeaders(responseHeaders, {
     provider: args.provider,

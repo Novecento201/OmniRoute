@@ -10,6 +10,10 @@ import {
   getReasoningTokens,
 } from "@/lib/usage/tokenAccounting";
 import { MAX_PROVIDER_SPECIFIC_TIMEOUT_MS } from "@/shared/validation/providerSpecificData";
+import {
+  readVeniceResponseDiagnostics,
+  type VeniceResponseDiagnostics,
+} from "./executorDiagnostics.ts";
 
 export function createBodyTimeoutError(timeoutMs: number): Error {
   const err = new Error(`Response body read timeout after ${timeoutMs}ms`);
@@ -123,10 +127,7 @@ export function getExecutorTimeoutMs(
     // Defensive backstop for direct callers: resolveConnectionTimeoutMs is the
     // gate (it rejects out-of-range values so the chain falls through); this
     // clamp only caps values a future caller could pass unvetted.
-    return Math.min(
-      Math.max(0, Math.floor(connectionTimeoutMs)),
-      MAX_PROVIDER_SPECIFIC_TIMEOUT_MS
-    );
+    return Math.min(Math.max(0, Math.floor(connectionTimeoutMs)), MAX_PROVIDER_SPECIFIC_TIMEOUT_MS);
   }
   const modelOverride = resolveModelTimeoutOverride(provider, model);
   if (modelOverride !== undefined) return modelOverride;
@@ -189,12 +190,16 @@ export function createExecutorContractError(): Error & { status: number; code: s
   return err;
 }
 
-export function normalizeExecutorResult(result: unknown): {
+export function normalizeExecutorResult(
+  result: unknown,
+  provider?: string
+): {
   response: Response;
   url: string;
   headers: Record<string, string>;
   transformedBody: unknown;
   transport?: string;
+  diagnostics?: VeniceResponseDiagnostics;
 } {
   if (isResponseLike(result)) {
     return { response: result, url: "", headers: {}, transformedBody: null };
@@ -213,13 +218,16 @@ export function normalizeExecutorResult(result: unknown): {
     headers?: Record<string, string>;
     transformedBody?: unknown;
     transport?: string;
+    diagnostics?: unknown;
   };
+  const diagnostics = readVeniceResponseDiagnostics(provider, normalized.diagnostics);
   return {
     response: normalized.response,
     url: normalized.url || "",
     headers: normalized.headers || {},
     transformedBody: normalized.transformedBody ?? null,
     transport: normalized.transport,
+    ...(diagnostics ? { diagnostics } : {}),
   };
 }
 

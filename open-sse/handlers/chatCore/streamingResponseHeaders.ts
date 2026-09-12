@@ -10,6 +10,10 @@
  */
 import { OMNIROUTE_RESPONSE_HEADERS } from "@/shared/constants/headers";
 import { buildStreamingResponseHeaders as defaultBuildStreaming } from "./responseHeaders.ts";
+import {
+  buildExecutorDiagnosticHeaders,
+  type VeniceResponseDiagnostics,
+} from "./executorDiagnostics.ts";
 
 export function assembleStreamingResponseHeaders(
   args: {
@@ -20,6 +24,7 @@ export function assembleStreamingResponseHeaders(
     compressionResponseMeta?: string | null | undefined;
     comboStrategy?: string | null | undefined;
     fallbackAttempts?: number;
+    diagnostics?: VeniceResponseDiagnostics;
   },
   buildStreamingResponseHeaders: typeof defaultBuildStreaming = defaultBuildStreaming
 ): Record<string, string> {
@@ -35,6 +40,7 @@ export function assembleStreamingResponseHeaders(
       ...(args.fallbackAttempts !== undefined ? { fallbackAttempts: args.fallbackAttempts } : {}),
     }),
     "x-omniroute-request-id": args.pendingRequestId,
+    ...buildExecutorDiagnosticHeaders(args.provider, args.diagnostics),
   };
   if (args.compressionResponseMeta) {
     responseHeaders[OMNIROUTE_RESPONSE_HEADERS.compression] = args.compressionResponseMeta;

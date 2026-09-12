@@ -3,6 +3,8 @@
  * All consumers use `import type` — no runtime imports.
  */
 
+import type { VeniceResponseDiagnostics } from "@omniroute/open-sse/handlers/chatCore/executorDiagnostics";
+
 // ─── §5.4 Provider Leg ─────────────────────────────────────────────────────
 
 export interface ProviderLegUsage {
@@ -63,6 +65,7 @@ export type NonStreamingProviderLegResult =
       requestHeaders?: Record<string, string>;
       requestUrl?: string;
       upstreamResponse?: Response;
+      diagnostics?: VeniceResponseDiagnostics;
       receipt: ProviderLegReceipt;
     }
   | {

@@ -35,6 +35,7 @@ import {
 } from "../../services/modelFamilyFallback.ts";
 import { isEmptyContentResponse } from "../../services/errorClassifier.ts";
 import { FORMATS } from "../../translator/formats.ts";
+import type { VeniceResponseDiagnostics } from "./executorDiagnostics.ts";
 
 /* -- exported types -------------------------------------------------------- */
 
@@ -44,6 +45,7 @@ export interface ChatCoreExecutorResult {
   headers: Record<string, string>;
   transformedBody: unknown;
   transport?: string;
+  diagnostics?: VeniceResponseDiagnostics;
   _executionCredentials?: Record<string, unknown>;
   _accountSemaphoreRelease?: () => void;
 }
@@ -251,6 +253,7 @@ function finishOk(
     clientResponseFormat: string;
     provider: string;
     upstreamResponse?: Response;
+    diagnostics?: VeniceResponseDiagnostics;
     requestHeaders?: Record<string, string>;
     requestUrl?: string;
   }
@@ -312,6 +315,7 @@ function finishOk(
     connectionId: params.connectionId,
     headers: params.headers,
     upstreamResponse: params.upstreamResponse,
+    diagnostics: params.diagnostics,
     requestHeaders: params.requestHeaders,
     requestUrl: params.requestUrl,
     receipt,
@@ -448,6 +452,7 @@ export async function runNonStreamingProviderLeg(
         url: outcome.url,
         headers: outcome.headers,
         transformedBody: outcome.transformedBody,
+        diagnostics: outcome.diagnostics,
       };
     } else {
       executorResult = await input.executeProviderRequest(
@@ -632,6 +637,7 @@ export async function runNonStreamingProviderLeg(
                 clientResponseFormat,
                 provider,
                 upstreamResponse: fallbackResult.response,
+                diagnostics: fallbackResult.diagnostics,
                 requestHeaders: fallbackResult.headers,
                 requestUrl: fallbackResult.url,
               });
@@ -711,6 +717,7 @@ export async function runNonStreamingProviderLeg(
                 clientResponseFormat,
                 provider,
                 upstreamResponse: fallbackResult.response,
+                diagnostics: fallbackResult.diagnostics,
                 requestHeaders: fallbackResult.headers,
                 requestUrl: fallbackResult.url,
               });
@@ -911,6 +918,7 @@ export async function runNonStreamingProviderLeg(
                 clientResponseFormat,
                 provider,
                 upstreamResponse: retryResult.response,
+                diagnostics: retryResult.diagnostics,
                 requestHeaders: retryResult.headers,
                 requestUrl: retryResult.url,
               });
@@ -1020,6 +1028,7 @@ export async function runNonStreamingProviderLeg(
                 clientResponseFormat,
                 provider,
                 upstreamResponse: fallbackResult.response,
+                diagnostics: fallbackResult.diagnostics,
                 requestHeaders: fallbackResult.headers,
                 requestUrl: fallbackResult.url,
               });
@@ -1152,6 +1161,7 @@ export async function runNonStreamingProviderLeg(
     clientResponseFormat,
     provider,
     upstreamResponse: executorResult.response,
+    diagnostics: executorResult.diagnostics,
     requestHeaders: executorResult.headers,
     requestUrl: executorResult.url,
   });

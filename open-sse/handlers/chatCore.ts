@@ -420,6 +420,7 @@ import {
   isTpmExhausted,
 } from "../services/geminiRateLimitTracker.ts";
 import { getProactiveCompressionRatio } from "@/lib/db/compression";
+import type { VeniceResponseDiagnostics } from "./chatCore/executorDiagnostics.ts";
 
 type ChatCoreExecutorResult = ReturnType<typeof normalizeExecutorResult> & {
   _executionCredentials?: Record<string, unknown>;
@@ -3185,7 +3186,7 @@ export async function handleChatCore({
                   providerSpecificData: execCreds?.providerSpecificData,
                 }
               );
-              const res = normalizeExecutorResult(rawExecutorResult);
+              const res = normalizeExecutorResult(rawExecutorResult, provider);
               trace("post_executor", { status: res?.response?.status });
 
               if (
@@ -3363,7 +3364,7 @@ export async function handleChatCore({
                             })
                           ),
                       });
-                      const retryRes = normalizeExecutorResult(retryRaw);
+                      const retryRes = normalizeExecutorResult(retryRaw, provider);
                       const retryOk =
                         retryRes.response.status >= 200 && retryRes.response.status < 300;
                       if (retryOk && retryRes.response.body) {
@@ -3616,6 +3617,7 @@ export async function handleChatCore({
   let providerResponse;
   let providerUrl;
   let providerHeaders;
+  let providerDiagnostics: VeniceResponseDiagnostics | undefined;
   let finalBody;
   let claudePromptCacheLogMeta = null;
 
@@ -4136,6 +4138,7 @@ export async function handleChatCore({
       currentModel = pipelineOutcome.model;
       if (pipelineOutcome.kind === "error") {
         providerResponse = pipelineOutcome.result.response;
+        providerDiagnostics = undefined;
         providerUrl = "";
         providerHeaders = normalizeHeaders(pipelineOutcome.result.response.headers);
         finalBody = translatedBody;
@@ -4147,6 +4150,7 @@ export async function handleChatCore({
           transformedBody: pipelineOutcome.transformedBody,
         };
         providerResponse = result.response;
+        providerDiagnostics = pipelineOutcome.diagnostics;
         providerUrl = result.url;
         providerHeaders = result.headers;
         finalBody = providerRequestCapture.body(result.transformedBody);
@@ -4431,11 +4435,13 @@ export async function handleChatCore({
                 contextEditing: { enabled: contextEditingEnabled },
                 correlationId,
               })
-            )
+            ),
+            provider
           );
 
           if (retryResult.response.ok) {
             providerResponse = retryResult.response;
+            providerDiagnostics = retryResult.diagnostics;
             providerUrl = retryResult.url;
             providerHeaders = new Headers(retryResult.headers || {});
             finalBody = providerRequestCapture.body(retryResult.transformedBody);
@@ -4448,6 +4454,7 @@ export async function handleChatCore({
             upstreamErrorParsed = false; // Reset since new response is OK
           } else {
             providerResponse = retryResult.response;
+            providerDiagnostics = retryResult.diagnostics;
             upstreamErrorParsed = false; // Let it be parsed downstream
           }
         } catch (retryErr) {
@@ -4551,6 +4558,7 @@ export async function handleChatCore({
           });
       if (!pipelineRecovered && signatureRecovery.attempted && signatureRecovery.execution) {
         providerResponse = signatureRecovery.execution.response;
+        providerDiagnostics = undefined;
         if (signatureRecovery.succeeded) {
           providerUrl = signatureRecovery.execution.url;
           providerHeaders = signatureRecovery.execution.headers;
@@ -4660,6 +4668,7 @@ export async function handleChatCore({
             const fallbackResult = await executeProviderRequest(nextModel, false);
             if (fallbackResult.response.ok) {
               providerResponse = fallbackResult.response;
+              providerDiagnostics = fallbackResult.diagnostics;
               providerUrl = fallbackResult.url;
               providerHeaders = fallbackResult.headers;
               finalBody = providerRequestCapture.body(fallbackResult.transformedBody);
@@ -4753,6 +4762,7 @@ export async function handleChatCore({
             const fallbackResult = await executeProviderRequest(nextModel, false);
             if (fallbackResult.response.ok) {
               providerResponse = fallbackResult.response;
+              providerDiagnostics = fallbackResult.diagnostics;
               providerUrl = fallbackResult.url;
               providerHeaders = fallbackResult.headers;
               finalBody = providerRequestCapture.body(fallbackResult.transformedBody);
@@ -5197,6 +5207,7 @@ export async function handleChatCore({
         okLeg = loopApply.leg;
       }
 
+      providerDiagnostics = okLeg.diagnostics;
       if (okLeg.upstreamResponse) {
         providerResponse = okLeg.upstreamResponse;
         providerHeaders = normalizeHeaders(okLeg.upstreamResponse.headers);
@@ -5533,6 +5544,7 @@ export async function handleChatCore({
         clientResponse: translatedResponse,
       });
       const responseHeaders = buildNonStreamingResponseHeaders({
+        diagnostics: providerDiagnostics,
         provider,
         model,
         startTime,
@@ -5719,6 +5731,7 @@ export async function handleChatCore({
   }
 
   const responseHeaders = assembleStreamingResponseHeaders({
+    diagnostics: providerDiagnostics,
     providerHeaders: providerResponse.headers,
     provider,
     model,

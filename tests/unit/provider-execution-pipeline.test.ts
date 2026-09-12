@@ -118,14 +118,37 @@ function makeInput(opts: {
   };
 }
 
-test("initial Codex 429: rotation resolver>=1 and successful retry", async () => {
-  const { runProviderExecutionPipeline } = await import(
-    "../../open-sse/handlers/chatCore/providerExecutionPipeline.ts"
+test("successful Venice outcome preserves trusted executor diagnostics", async () => {
+  const { runProviderExecutionPipeline } =
+    await import("../../open-sse/handlers/chatCore/providerExecutionPipeline.ts");
+  const diagnostics = {
+    provider: "venice-web",
+    transport: "classic",
+    visionPath: "native",
+    imageCount: 2,
+  } as const;
+  const outcome = await runProviderExecutionPipeline(
+    makeInput({
+      policy: { allowAccountRotation: false, allowModelFallback: false },
+      provider: "venice-web",
+      send: async () => makeAttempt({ choices: [] }, 200, { diagnostics }),
+    })
   );
+  assert.equal(outcome.kind, "response");
+  if (outcome.kind === "response") assert.deepEqual(outcome.diagnostics, diagnostics);
+});
+
+test("initial Codex 429: rotation resolver>=1 and successful retry", async () => {
+  const { runProviderExecutionPipeline } =
+    await import("../../open-sse/handlers/chatCore/providerExecutionPipeline.ts");
   let sendCount = 0;
   let resolverCallCount = 0;
   const input = makeInput({
-    policy: { allowAccountRotation: true, allowModelFallback: true, expectedConnectionId: undefined },
+    policy: {
+      allowAccountRotation: true,
+      allowModelFallback: true,
+      expectedConnectionId: undefined,
+    },
     provider: "codex",
     connectionId: "conn-a",
     send: async () => {
@@ -135,10 +158,13 @@ test("initial Codex 429: rotation resolver>=1 and successful retry", async () =>
           headers: { "retry-after": "1" },
         });
       }
-      return makeAttempt({
-        id: "chatcmpl-ok",
-        choices: [{ message: { role: "assistant", content: "rotated" }, finish_reason: "stop" }],
-      }, 200);
+      return makeAttempt(
+        {
+          id: "chatcmpl-ok",
+          choices: [{ message: { role: "assistant", content: "rotated" }, finish_reason: "stop" }],
+        },
+        200
+      );
     },
     getProviderCredentials: (async () => {
       resolverCallCount += 1;
@@ -157,9 +183,8 @@ test("initial Codex 429: rotation resolver>=1 and successful retry", async () =>
 });
 
 test("initial Antigravity 422 gcp_project_required: rotation resolver>=1 and successful retry", async () => {
-  const { runProviderExecutionPipeline } = await import(
-    "../../open-sse/handlers/chatCore/providerExecutionPipeline.ts"
-  );
+  const { runProviderExecutionPipeline } =
+    await import("../../open-sse/handlers/chatCore/providerExecutionPipeline.ts");
   let sendCount = 0;
   let resolverCallCount = 0;
   const input = makeInput({
@@ -169,7 +194,10 @@ test("initial Antigravity 422 gcp_project_required: rotation resolver>=1 and suc
     send: async () => {
       sendCount += 1;
       if (sendCount === 1) {
-        return makeAttempt({ error: { message: "gcp_project_required", type: "invalid_request" } }, 422);
+        return makeAttempt(
+          { error: { message: "gcp_project_required", type: "invalid_request" } },
+          422
+        );
       }
       return makeAttempt(
         {
@@ -196,9 +224,8 @@ test("initial Antigravity 422 gcp_project_required: rotation resolver>=1 and suc
 });
 
 test("follow-up rotation blocks resolver on Antigravity 422", async () => {
-  const { runProviderExecutionPipeline } = await import(
-    "../../open-sse/handlers/chatCore/providerExecutionPipeline.ts"
-  );
+  const { runProviderExecutionPipeline } =
+    await import("../../open-sse/handlers/chatCore/providerExecutionPipeline.ts");
   let sendCount = 0;
   let resolverCallCount = 0;
   const input = makeInput({
@@ -211,7 +238,10 @@ test("follow-up rotation blocks resolver on Antigravity 422", async () => {
     connectionId: "agy-a",
     send: async () => {
       sendCount += 1;
-      return makeAttempt({ error: { message: "gcp_project_required", type: "invalid_request" } }, 422);
+      return makeAttempt(
+        { error: { message: "gcp_project_required", type: "invalid_request" } },
+        422
+      );
     },
     getProviderCredentials: (async () => {
       resolverCallCount += 1;
@@ -230,9 +260,8 @@ test("follow-up rotation blocks resolver on Antigravity 422", async () => {
 });
 
 test("follow-up rotation blocks resolver on Codex 429", async () => {
-  const { runProviderExecutionPipeline } = await import(
-    "../../open-sse/handlers/chatCore/providerExecutionPipeline.ts"
-  );
+  const { runProviderExecutionPipeline } =
+    await import("../../open-sse/handlers/chatCore/providerExecutionPipeline.ts");
   let sendCount = 0;
   let resolverCallCount = 0;
   const input = makeInput({
@@ -264,9 +293,8 @@ test("follow-up rotation blocks resolver on Codex 429", async () => {
 });
 
 test("401 refresh succeeds then retries once on same connection", async () => {
-  const { runProviderExecutionPipeline } = await import(
-    "../../open-sse/handlers/chatCore/providerExecutionPipeline.ts"
-  );
+  const { runProviderExecutionPipeline } =
+    await import("../../open-sse/handlers/chatCore/providerExecutionPipeline.ts");
   let sendCount = 0;
   let refreshCount = 0;
   let persistCount = 0;
@@ -278,12 +306,17 @@ test("401 refresh succeeds then retries once on same connection", async () => {
     send: async () => {
       sendCount += 1;
       if (sendCount === 1) {
-        return makeAttempt({ error: { message: "invalid_api_key", type: "authentication_error" } }, 401);
+        return makeAttempt(
+          { error: { message: "invalid_api_key", type: "authentication_error" } },
+          401
+        );
       }
       return makeAttempt(
         {
           id: "chatcmpl-ok",
-          choices: [{ message: { role: "assistant", content: "refreshed" }, finish_reason: "stop" }],
+          choices: [
+            { message: { role: "assistant", content: "refreshed" }, finish_reason: "stop" },
+          ],
         },
         200
       );
@@ -314,9 +347,8 @@ test("401 refresh succeeds then retries once on same connection", async () => {
 });
 
 test("status restatement rewrites agentrouter 403 quota exhaustion to 429 before classification", async () => {
-  const { runProviderExecutionPipeline } = await import(
-    "../../open-sse/handlers/chatCore/providerExecutionPipeline.ts"
-  );
+  const { runProviderExecutionPipeline } =
+    await import("../../open-sse/handlers/chatCore/providerExecutionPipeline.ts");
   let sendCount = 0;
   const input = makeInput({
     policy: { allowAccountRotation: true, allowModelFallback: true },
@@ -338,9 +370,8 @@ test("status restatement rewrites agentrouter 403 quota exhaustion to 429 before
 });
 
 test("thinking-signature recovery returns winning response", async () => {
-  const { runProviderExecutionPipeline } = await import(
-    "../../open-sse/handlers/chatCore/providerExecutionPipeline.ts"
-  );
+  const { runProviderExecutionPipeline } =
+    await import("../../open-sse/handlers/chatCore/providerExecutionPipeline.ts");
   let sendCount = 0;
   const input = makeInput({
     policy: { allowAccountRotation: true, allowModelFallback: true },
@@ -350,7 +381,12 @@ test("thinking-signature recovery returns winning response", async () => {
       sendCount += 1;
       if (sendCount === 1) {
         return makeAttempt(
-          { error: { message: "invalid signature in thinking block", type: "invalid_request_error" } },
+          {
+            error: {
+              message: "invalid signature in thinking block",
+              type: "invalid_request_error",
+            },
+          },
           400
         );
       }
@@ -390,9 +426,8 @@ test("thinking-signature recovery returns winning response", async () => {
 });
 
 test("initial model-unavailable falls back to sibling model", async () => {
-  const { runProviderExecutionPipeline } = await import(
-    "../../open-sse/handlers/chatCore/providerExecutionPipeline.ts"
-  );
+  const { runProviderExecutionPipeline } =
+    await import("../../open-sse/handlers/chatCore/providerExecutionPipeline.ts");
   let sendCount = 0;
   let fallbackLookupCount = 0;
   const sentModels: string[] = [];
@@ -436,9 +471,8 @@ test("initial model-unavailable falls back to sibling model", async () => {
 });
 
 test("follow-up allowModelFallback=false blocks model-unavailable fallback", async () => {
-  const { runProviderExecutionPipeline } = await import(
-    "../../open-sse/handlers/chatCore/providerExecutionPipeline.ts"
-  );
+  const { runProviderExecutionPipeline } =
+    await import("../../open-sse/handlers/chatCore/providerExecutionPipeline.ts");
   let sendCount = 0;
   let fallbackLookupCount = 0;
   const input = makeInput({
@@ -474,9 +508,8 @@ test("follow-up allowModelFallback=false blocks model-unavailable fallback", asy
 });
 
 test("Codex 429 rotation calls scope-rate-limit, affinity-clear, and audit hooks", async () => {
-  const { runProviderExecutionPipeline } = await import(
-    "../../open-sse/handlers/chatCore/providerExecutionPipeline.ts"
-  );
+  const { runProviderExecutionPipeline } =
+    await import("../../open-sse/handlers/chatCore/providerExecutionPipeline.ts");
   const rateLimited: Array<Record<string, unknown>> = [];
   const affinityCleared: string[] = [];
   const audits: Array<Record<string, unknown>> = [];
@@ -529,9 +562,8 @@ test("Codex 429 rotation calls scope-rate-limit, affinity-clear, and audit hooks
 });
 
 test("Codex 429 cooldown reads Retry-After from the response, not request headers", async () => {
-  const { runProviderExecutionPipeline } = await import(
-    "../../open-sse/handlers/chatCore/providerExecutionPipeline.ts"
-  );
+  const { runProviderExecutionPipeline } =
+    await import("../../open-sse/handlers/chatCore/providerExecutionPipeline.ts");
   const rateLimited: Array<Record<string, unknown>> = [];
   let sendCount = 0;
   const input = makeInput({
@@ -586,9 +618,8 @@ test("Codex 429 cooldown reads Retry-After from the response, not request header
 });
 
 test("Antigravity BYOP 422 rotation persists cooldown via setConnectionRateLimitedUntil", async () => {
-  const { runProviderExecutionPipeline } = await import(
-    "../../open-sse/handlers/chatCore/providerExecutionPipeline.ts"
-  );
+  const { runProviderExecutionPipeline } =
+    await import("../../open-sse/handlers/chatCore/providerExecutionPipeline.ts");
   const cooldowns: Array<{ id: string; untilMs: number | null }> = [];
   let sendCount = 0;
   const input = makeInput({
