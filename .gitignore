@@ -296,3 +296,6 @@ docker-compose.yml.bak
 
 # check:install-upgrade work trees (~12 GB, disposable)
 /.install-upgrade/
+
+# Local browser pairing only; never commit companion pairing keys.
+/.venice-browser/

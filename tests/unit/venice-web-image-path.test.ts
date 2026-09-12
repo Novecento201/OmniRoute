@@ -159,3 +159,53 @@ test("lite alone strips base64 only for explicitly false vision, and preserves u
     if (capability === false) assert.match(JSON.stringify(out.body), /\[image: png\]/);
   }
 });
+
+test("browser mode requires transport evidence and skips Bridge only after native success", async () => {
+  const previous = process.env.OMNIROUTE_VENICE_BROWSER;
+  const { getVeniceBroker } = await import("../../open-sse/executors/venice-web/runtimeState.ts");
+  const { VeniceClassicTransport } =
+    await import("../../open-sse/executors/venice-web/classicTransport.ts");
+  const broker = getVeniceBroker();
+  const otherProvider = getResolvedModelCapabilities("openai/gpt-4o");
+  process.env.OMNIROUTE_VENICE_BROWSER = "1";
+  try {
+    const payload = fixture("fixture-native");
+    // The custom DB row declares vision, but catalog declarations are insufficient.
+    assert.equal(getResolvedModelCapabilities(payload.model).supportsVision, null);
+    broker.submit({
+      bearerToken: "synthetic-test-only",
+      clientAttestation: "synthetic-test-only",
+      userId: "fixture-user",
+    });
+    const transport = new VeniceClassicTransport(
+      broker,
+      async () => new Response('{"kind":"content","content":"Neutral test pixels"}\n')
+    );
+    const result = await transport.execute({
+      model: "fixture-native",
+      stream: false,
+      body: { ...payload, model: "fixture-native" },
+    });
+    assert.equal(result.response.status, 200);
+    assert.equal(getResolvedModelCapabilities(payload.model).supportsVision, true);
+    assert.equal(getResolvedModelCapabilities("venice-web/unvalidated").supportsVision, null);
+    let described = 0;
+    const bridge = new VisionBridgeGuardrail({
+      deps: {
+        getSettings: async () => ({ visionBridgeEnabled: true }),
+        callVisionModel: async () => {
+          described++;
+          return "Should not run";
+        },
+      },
+    });
+    const out = await bridge.preCall(payload, { model: payload.model });
+    assert.equal(described, 0);
+    assert.equal(out.modifiedPayload, undefined);
+    assert.deepEqual(getResolvedModelCapabilities("openai/gpt-4o"), otherProvider);
+  } finally {
+    broker.close();
+    if (previous === undefined) delete process.env.OMNIROUTE_VENICE_BROWSER;
+    else process.env.OMNIROUTE_VENICE_BROWSER = previous;
+  }
+});

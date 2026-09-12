@@ -1,14 +1,13 @@
 /**
  * VeniceWebExecutor — Privacy-Focused AI Chat via venice.ai
  *
- * Routes requests through Venice's chat API.
- * Privacy-focused, less bot detection than major providers.
- *
- * Endpoint: POST https://venice.ai/api/chat
- * Auth: Session cookie from venice.ai
+ * Opt-in Classic transport uses real browser-provided Bearer + attestation.
+ * Without OMNIROUTE_VENICE_BROWSER=1, preserves the legacy cookie transport.
  */
 import { BaseExecutor, type ExecuteInput } from "./base.ts";
 import { makeExecutorErrorResult as makeErrorResult, normalizeCookie } from "../utils/error.ts";
+import { VeniceClassicTransport } from "./venice-web/classicTransport.ts";
+import { getVeniceBroker, veniceBrowserEnabled } from "./venice-web/runtimeState.ts";
 
 const BASE_URL = "https://venice.ai";
 const CHAT_URL = `${BASE_URL}/api/chat`;
@@ -21,6 +20,20 @@ export class VeniceWebExecutor extends BaseExecutor {
   }
 
   async execute(input: ExecuteInput) {
+    if (veniceBrowserEnabled()) {
+      try {
+        const { startVeniceBrowserRuntime } = await import("./venice-web/runtime.ts");
+        await startVeniceBrowserRuntime();
+      } catch {
+        return makeErrorResult(
+          503,
+          "Venice browser companion unavailable",
+          input.body,
+          "https://outerface.venice.ai/api/inference/chat"
+        );
+      }
+      return new VeniceClassicTransport(getVeniceBroker()).execute(input);
+    }
     const { body, credentials, signal, stream: wantStream } = input;
     const bodyObj = (body || {}) as Record<string, unknown>;
     const rawCookie = normalizeCookie(String(credentials?.apiKey ?? "").trim());
@@ -43,6 +56,7 @@ export class VeniceWebExecutor extends BaseExecutor {
       Origin: BASE_URL,
     };
     if (rawCookie) reqHeaders.Cookie = rawCookie;
+    const diagnosticHeaders = { ...reqHeaders, ...(rawCookie ? { Cookie: "[REDACTED]" } : {}) };
 
     let upstream: Response;
     try {
@@ -52,22 +66,27 @@ export class VeniceWebExecutor extends BaseExecutor {
         body: JSON.stringify(reqBody),
         signal,
       });
-    } catch (err) {
+    } catch {
+      return makeErrorResult(502, "Venice fetch failed", body, CHAT_URL);
+    }
+
+    if (!upstream.ok) {
+      void upstream.body?.cancel().catch(() => {});
       return makeErrorResult(
-        502,
-        `Venice fetch failed: ${err instanceof Error ? err.message : "unknown"}`,
+        upstream.status,
+        `Venice upstream request failed (HTTP ${upstream.status})`,
         body,
         CHAT_URL
       );
     }
 
-    if (!upstream.ok) {
-      const errText = await upstream.text().catch(() => "");
-      return makeErrorResult(upstream.status, `Venice error: ${errText}`, body, CHAT_URL);
-    }
-
     if (!wantStream) {
-      const data = (await upstream.json()) as Record<string, unknown>;
+      let data: Record<string, unknown>;
+      try {
+        data = (await upstream.json()) as Record<string, unknown>;
+      } catch {
+        return makeErrorResult(502, "Venice invalid response", body, CHAT_URL);
+      }
       const content =
         (data?.choices as Array<{ message?: { content?: string } }>)?.[0]?.message?.content ||
         (data?.content as string) ||
@@ -90,7 +109,7 @@ export class VeniceWebExecutor extends BaseExecutor {
           { headers: { "Content-Type": "application/json" } }
         ),
         url: CHAT_URL,
-        headers: reqHeaders,
+        headers: diagnosticHeaders,
         transformedBody: reqBody,
       };
     }
@@ -140,12 +159,15 @@ export class VeniceWebExecutor extends BaseExecutor {
               }
             }
           }
-        } catch (err) {
-          if (!signal?.aborted) controller.error(err);
+        } catch {
+          if (!signal?.aborted) controller.error(new Error("Venice stream failed"));
+          else controller.close();
+          return;
         } finally {
-          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-          controller.close();
+          reader.releaseLock();
         }
+        controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+        controller.close();
       },
     });
 
@@ -158,7 +180,7 @@ export class VeniceWebExecutor extends BaseExecutor {
         },
       }),
       url: CHAT_URL,
-      headers: reqHeaders,
+      headers: diagnosticHeaders,
       transformedBody: reqBody,
     };
   }

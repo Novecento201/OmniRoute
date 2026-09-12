@@ -91,6 +91,7 @@ function maskSensitiveHeaders(headers: HeaderInput): Record<string, unknown> {
     "authorization",
     "x-api-key",
     "cookie",
+    "attestation",
     "token",
     "runtimekey",
     "storage-state",
@@ -105,7 +106,10 @@ function maskSensitiveHeaders(headers: HeaderInput): Record<string, unknown> {
     if (lowerKey.startsWith("x-ratelimit-")) {
       continue;
     }
-    if (lowerKey === "x-omniroute-lease-owner") {
+    if (
+      lowerKey === "x-omniroute-lease-owner" ||
+      /authorization|cookie|attestation/.test(lowerKey)
+    ) {
       masked[key] = "[REDACTED]";
       continue;
     }

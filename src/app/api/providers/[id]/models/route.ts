@@ -469,6 +469,33 @@ export async function GET(
       });
     };
 
+    if (
+      (provider === "venice-web" || provider === "ven") &&
+      process.env.OMNIROUTE_VENICE_BROWSER === "1"
+    ) {
+      const { getVeniceBroker } =
+        await import("@omniroute/open-sse/executors/venice-web/runtimeState.ts");
+      const { startVeniceBrowserRuntime } =
+        await import("@omniroute/open-sse/executors/venice-web/runtime.ts");
+      const { discoverVeniceModels } =
+        await import("@omniroute/open-sse/executors/venice-web/models.ts");
+      const { VeniceTransportError } =
+        await import("@omniroute/open-sse/executors/venice-web/authBroker.ts");
+      try {
+        await startVeniceBrowserRuntime();
+        const models = await discoverVeniceModels(getVeniceBroker());
+        // Session-bound validation must never become a persisted static capability.
+        return buildResponse({ provider, connectionId, models, source: "api" });
+      } catch (error) {
+        return buildResponse(
+          {
+            error: error instanceof VeniceTransportError ? error.category : "companion_unavailable",
+          },
+          { status: error instanceof VeniceTransportError ? error.status : 503 }
+        );
+      }
+    }
+
     if (provider === "reka") {
       // reka has no remote model-discovery endpoint — the local catalog is the
       // intended source, not a degraded fallback (#5460).
@@ -616,9 +643,7 @@ export async function GET(
       try {
         const discovery = await discoverMaxaiModels({
           providerSpecificData: connection.providerSpecificData as
-            | Record<string, unknown>
-            | null
-            | undefined,
+            Record<string, unknown> | null | undefined,
           accessToken: apiKey || accessToken,
           fetchImpl: (url, init) =>
             safeOutboundFetch(url, {

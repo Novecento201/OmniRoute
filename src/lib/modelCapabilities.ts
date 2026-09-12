@@ -19,6 +19,10 @@ import {
 } from "@/lib/db/modelCapabilityOverrides";
 import { getCustomModelVisionOverride } from "@/lib/db/models";
 import type { ModelCapabilityResolutionSnapshot } from "@/lib/modelCapabilityResolutionSnapshot";
+import {
+  hasValidatedVeniceVision,
+  veniceBrowserEnabled,
+} from "@omniroute/open-sse/executors/venice-web/runtimeState.ts";
 import { resolveAudioCapability, resolveVideoCapability } from "@/lib/modelCapabilityModalities";
 
 export type { ModelCapabilityResolutionSnapshot } from "@/lib/modelCapabilityResolutionSnapshot";
@@ -858,15 +862,20 @@ export function getResolvedModelCapabilities(
         )
       : null;
 
-  const supportsVision = resolveVisionCapability(
-    visionSpec,
-    registryModel,
-    synced,
-    modalitiesInput,
-    modalitiesOutput,
-    lookupKey,
-    customVisionOverride
-  );
+  const supportsVision =
+    (resolved.provider === "venice-web" || resolved.provider === "ven") && veniceBrowserEnabled()
+      ? resolved.model && hasValidatedVeniceVision(resolved.model)
+        ? true
+        : null
+      : resolveVisionCapability(
+          visionSpec,
+          registryModel,
+          synced,
+          modalitiesInput,
+          modalitiesOutput,
+          lookupKey,
+          customVisionOverride
+        );
   const supportsAudio = resolveAudioCapability(spec, registryModel, modalitiesInput);
   const supportsVideo = resolveVideoCapability(spec, registryModel, modalitiesInput);
 

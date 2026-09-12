@@ -23,9 +23,29 @@ const input = () => ({
   signal: null,
 });
 const executor = new VeniceWebExecutor();
+// This file covers legacy behavior; browser-mode integration is tested separately.
+process.env.OMNIROUTE_VENICE_BROWSER = "0";
 afterEach(() => mock.restoreAll());
 
 describe("Venice web deterministic baseline (mock upstream, not live compatibility)", () => {
+  it("redacts complete authorization, cookie and attestation values at every header boundary", async () => {
+    const logger = await createRequestLogger("openai", "openai", "fixture-model");
+    const headers = {
+      Authorization: "Bearer synthetic-bearer-secret-value",
+      Cookie: "session=synthetic-cookie-secret-value",
+      "x-venice-client-attestation": "synthetic-attestation-secret-value",
+    };
+    logger.logTargetRequest("https://venice.ai/", headers, {});
+    logger.logClientRawRequest("/v1/chat/completions", {}, headers);
+    logger.logProviderResponse(401, "Unauthorized", headers, {});
+    const payload = JSON.stringify(logger.getPipelinePayloads());
+    for (const value of Object.values(headers)) assert.equal(payload.includes(value), false);
+    assert.equal(payload.includes("synthetic"), false);
+    assert.equal(
+      logger.getPipelinePayloads()?.providerRequest?.headers?.Authorization,
+      "[REDACTED]"
+    );
+  });
   it("forwards text, body model, token limit and normalized cookie", async () => {
     const fetchMock = mock.method(globalThis, "fetch", async () =>
       Response.json({ content: "Hello back" })
@@ -104,7 +124,7 @@ describe("Venice web deterministic baseline (mock upstream, not live compatibili
     assert.equal(observed, controller.signal);
     assert.equal(observed?.aborted, true);
     assert.equal(result.response.status, 502);
-    assert.match((await result.response.json()).error.message, /Fixture cancellation/);
+    assert.match((await result.response.json()).error.message, /Venice fetch failed/);
   });
 
   for (const status of [401, 403, 429, 500]) {
@@ -116,7 +136,7 @@ describe("Venice web deterministic baseline (mock upstream, not live compatibili
       );
       const result = await executor.execute(input());
       assert.equal(result.response.status, status);
-      assert.match((await result.response.json()).error.message, /Fixture upstream failure/);
+      assert.match((await result.response.json()).error.message, /Venice upstream request failed/);
       assert.deepEqual(result.headers, {});
     });
   }
@@ -128,15 +148,37 @@ describe("Venice web deterministic baseline (mock upstream, not live compatibili
     assert.equal((await executor.execute(input())).response.status, 502);
   });
 
-  it("characterizes logger partial masking (NOT complete credential redaction)", async () => {
+  it("fully redacts cookie metadata while forwarding the real cookie only upstream", async () => {
     mock.method(globalThis, "fetch", async () => Response.json({ content: "ok" }));
     const result = await executor.execute(input());
     const logger = await createRequestLogger("openai", "openai", "fixture-model");
     logger.logTargetRequest(result.url, result.headers, result.transformedBody);
     const logged = logger.getPipelinePayloads();
-    assert.equal(logged?.providerRequest?.headers?.Cookie, "fixture=no...56789");
+    assert.equal(logged?.providerRequest?.headers?.Cookie, "[REDACTED]");
     assert.equal(JSON.stringify(logged).includes("fixture=not-a-real-session-0123456789"), false);
-    // Raw cookie remains in internal executor metadata; callers must use the logger boundary.
-    assert.equal(result.headers.Cookie, "fixture=not-a-real-session-0123456789");
+    assert.equal(result.headers.Cookie, "[REDACTED]");
+  });
+
+  it("sanitizes invalid legacy JSON and stream exceptions instead of echoing upstream secrets", async () => {
+    const secret = "synthetic-upstream-secret-NEVER-LOG";
+    const fetched = mock.method(globalThis, "fetch", async () => new Response(secret));
+    const invalid = await executor.execute(input());
+    assert.equal(invalid.response.status, 502);
+    assert.equal((await invalid.response.text()).includes(secret), false);
+    fetched.mock.restore();
+    mock.method(
+      globalThis,
+      "fetch",
+      async () =>
+        new Response(
+          new ReadableStream({
+            pull() {
+              throw new Error(secret);
+            },
+          })
+        )
+    );
+    const streaming = await executor.execute({ ...input(), stream: true });
+    await assert.rejects(streaming.response.text(), { message: "Venice stream failed" });
   });
 });

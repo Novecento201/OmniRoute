@@ -1,6 +1,6 @@
 /**
  * Classic Web wire codec verified against browser traffic on 2026-09-12.
- * Not registered as a live transport: session/attestation renewal is still unverified.
+ * Used by the opt-in browser-authenticated Classic transport.
  * Classic uses raw base64 imagePath entries and newline JSON, NOT Agentic multipart/SSE.
  */
 export class VeniceWireError extends Error {
